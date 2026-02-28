@@ -22,6 +22,7 @@ from krkn_ai.models.config import ConfigFile
 from krkn_ai.reporter.generations_reporter import GenerationsReporter
 from krkn_ai.reporter.health_check_reporter import HealthCheckReporter
 from krkn_ai.reporter.json_summary_reporter import JSONSummaryReporter
+from krkn_ai.reporter.baseline_reporter import BaselineReporter
 from krkn_ai.utils.logger import get_logger
 from krkn_ai.chaos_engines.krkn_runner import KrknRunner
 from krkn_ai.utils.rng import rng
@@ -83,6 +84,7 @@ class GeneticAlgorithm:
             self.output_dir, self.config.output
         )
         self.generations_reporter = GenerationsReporter(self.output_dir, self.format)
+        self.baseline_reporter = BaselineReporter(self.config, self.krkn_client)
         # Only initialize ElasticSearchClient if elastic config is provided
         self.elastic_client: Optional[ElasticSearchClient] = None
         if self.config.elastic is not None:
@@ -117,8 +119,17 @@ class GeneticAlgorithm:
         # logger.debug("--------------------------------------------------------")
         # logger.debug("%s", json.dumps(self.config.model_dump(), indent=2))
 
+    def baseline(self, duration_seconds: int):
+        """
+        Run a baseline scenario to establish baseline fitness metrics.
+
+        Args:
+            duration_seconds: Duration to run the baseline scenario.
+        """
+        self.baseline_reporter.run_baseline(duration_seconds)
+
     def simulate(self):
-        # Initial population (Gen 0)
+
         self.population = self.create_population(self.config.population_size)
 
         # Variables to track the progress of the algorithm
@@ -500,7 +511,15 @@ class GeneticAlgorithm:
 
         scenario_result = self.krkn_client.run(scenario, generation_id)
 
-        # Add scenario to seen population
+        if self.config.baseline_regression_threshold is not None:
+            is_regression = self.baseline_reporter.check_regression(
+                scenario_result,
+                self.config.baseline_regression_threshold
+            )
+            scenario_result = scenario_result.model_copy(
+                update={"regression_from_baseline": is_regression}
+            )
+
         self.seen_population[scenario] = scenario_result
 
         # Save scenario result
@@ -696,6 +715,7 @@ class GeneticAlgorithm:
             end_time=self.end_time,
             completed_generations=self.completed_generations,
             seed=self.seed,
+            baseline_result=self.baseline_reporter.get_baseline_result(),
         )
         summary_reporter.save(self.output_dir)
 

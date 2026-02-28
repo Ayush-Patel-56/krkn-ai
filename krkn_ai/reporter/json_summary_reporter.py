@@ -14,6 +14,10 @@ from krkn_ai.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _round_score(value: float) -> float:
+    return round(value, 4)
+
+
 class JSONSummaryReporter:
     """
     Reporter class for generating and saving unified JSON summary files.
@@ -32,6 +36,7 @@ class JSONSummaryReporter:
         end_time: Optional[datetime.datetime] = None,
         completed_generations: int = 0,
         seed: Optional[int] = None,
+        baseline_result: Optional[CommandRunResult] = None,
     ):
         """
         Initialize the JSON summary reporter.
@@ -54,6 +59,7 @@ class JSONSummaryReporter:
         self.end_time = end_time
         self.completed_generations = completed_generations
         self.seed = seed
+        self.baseline_result = baseline_result
 
     def generate_summary(self) -> Dict[str, Any]:
         """
@@ -92,10 +98,8 @@ class JSONSummaryReporter:
         # Generate fitness progression from best_of_generation
         fitness_progression = self._build_fitness_progression()
 
-        # Generate best scenarios list (sorted by fitness score, top 10)
         best_scenarios = self._build_best_scenarios()
 
-        # Build the results summary
         results_summary: Dict[str, Any] = {
             "run_id": self.run_uuid,
             "seed": self.seed,
@@ -114,12 +118,24 @@ class JSONSummaryReporter:
                 "total_scenarios_executed": len(self.seen_population),
                 "unique_scenarios": len(unique_scenarios),
                 "generations_completed": self.completed_generations,
-                "best_fitness_score": round(best_fitness_score, 4),
-                "average_fitness_score": round(average_fitness_score, 4),
+                "best_fitness_score": _round_score(best_fitness_score),
+                "average_fitness_score": _round_score(average_fitness_score),
             },
             "best_scenarios": best_scenarios,
             "fitness_progression": fitness_progression,
         }
+        if self.baseline_result is not None:
+            results_summary["baseline"] = {
+                "fitness_score": _round_score(
+                    self.baseline_result.fitness_result.fitness_score
+                ),
+            }
+            regressions = sum(
+                1
+                for r in self.seen_population.values()
+                if r.regression_from_baseline is True
+            )
+            results_summary["summary"]["regressions_from_baseline"] = regressions
 
         return results_summary
 

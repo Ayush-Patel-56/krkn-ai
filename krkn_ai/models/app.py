@@ -46,6 +46,7 @@ class CommandRunResult(BaseModel):
     run_uuid: Optional[str] = (
         None  # Unique identifier generated from krkn engine during scenario execution
     )
+    regression_from_baseline: Optional[bool] = None
 
 
 class KrknRunnerType(str, Enum):

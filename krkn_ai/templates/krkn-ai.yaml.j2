@@ -11,6 +11,9 @@ population_injection_rate: 0
 
 wait_duration: 120
 
+# Baseline: Detect regressions from baseline fitness (use genetic_algorithm.baseline(duration) to run baseline)
+# baseline_regression_threshold: 10.0  # Flag scenario as regression if fitness degrades by more than 10% from baseline
+
 output:
   result_name_fmt: "scenario_%s.yaml"
   graph_name_fmt: "scenario_%s.png"
