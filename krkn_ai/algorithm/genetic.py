@@ -270,6 +270,7 @@ class GeneticAlgorithm:
         """
         should_stop, reason = self.should_stop(cur_generation, elapsed_time)
         if should_stop:
+            self.end_time = datetime.datetime.now(datetime.timezone.utc)
             logger.info("Stopping algorithm: %s", reason)
             logger.info(
                 "Completed %d generations in %s",

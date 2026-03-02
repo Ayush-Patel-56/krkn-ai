@@ -91,6 +91,7 @@ class KrknRunner:
         logger.info("Running scenario: %s", scenario)
 
         start_time = datetime.datetime.now()
+        mono_start = time.monotonic()
 
         # Generate command krkn executor command
         log, returncode, run_uuid = None, None, None
@@ -133,6 +134,7 @@ class KrknRunner:
                 health_check_watcher.stop()
 
         end_time = datetime.datetime.now()
+        duration_seconds = time.monotonic() - mono_start
 
         # calculate fitness scores
         fitness_result: FitnessResult = FitnessResult()
@@ -205,6 +207,7 @@ class KrknRunner:
             returncode=returncode,
             start_time=start_time,
             end_time=end_time,
+            duration_seconds=duration_seconds,
             fitness_result=fitness_result,
             health_check_results=health_check_results,
             run_uuid=run_uuid,
