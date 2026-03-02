@@ -118,11 +118,14 @@ class KrknRunner:
             try:
                 # Run command (show logs when verbose mode is enabled)
                 log, returncode = run_shell(
-                    self.process_es_env_string(command, True), do_not_log=not is_verbose()
+                    self.process_es_env_string(command, True),
+                    do_not_log=not is_verbose(),
                 )
 
                 # Extract return code from run log which is part of telemetry data present in the log
-                returncode, run_uuid = self.__extract_returncode_from_run(log, returncode)
+                returncode, run_uuid = self.__extract_returncode_from_run(
+                    log, returncode
+                )
                 logger.info("Krkn scenario return code: %d", returncode)
 
             finally:
