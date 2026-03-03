@@ -39,7 +39,7 @@ KRKNCTL_TEMPLATE = "krknctl run {name} --telemetry-prometheus-backup False --wai
 
 KRKNCTL_ES_TEMPLATE = ' --enable-es True --es-server "{server}" --es-port "{port}" --es-username "{username}" --es-password "{password}" --es-verify-certs "{verify_certs}" '
 
-KRKNCTL_GRAPH_RUN_TEMPLATE = "krknctl graph run {path} --kubeconfig {kubeconfig}"
+KRKNCTL_GRAPH_RUN_TEMPLATE = "krknctl graph run {path} --kubeconfig {kubeconfig} --log-dir {log_dir}"
 
 KRKN_HUB_FAILURE_SCORE = 5
 
@@ -111,8 +111,6 @@ class KrknRunner:
             time.sleep(rng.randint(1, 3))
             log, returncode = "", 0
         else:
-            # TODO: How to capture logs from composite run scenario
-
             # Start watching application urls for health checks
             health_check_watcher.run()
 
@@ -123,10 +121,14 @@ class KrknRunner:
                     do_not_log=not is_verbose(),
                 )
 
-                # Extract return code from run log which is part of telemetry data present in the log
-                returncode, run_uuid = self.__extract_returncode_from_run(
-                    log, returncode
-                )
+                # Extract return code from run log
+                # Composite scenarios need special handling since logs are in separate files
+                if isinstance(scenario, CompositeScenario):
+                    graph_log_dir = os.path.join(self.output_dir, "graph_logs")
+                    returncode, run_uuid = self.__extract_returncode_from_graph_run(graph_log_dir, returncode)
+                else:
+                    returncode, run_uuid = self.__extract_returncode_from_run(log, returncode)
+
                 logger.info("Krkn scenario return code: %d", returncode)
 
             finally:
@@ -288,9 +290,15 @@ class KrknRunner:
             json.dump(scenario_json, f, ensure_ascii=False, indent=4)
         logger.info("Created scenario json in path: %s", json_file)
 
+        # Create log directory for graph run node logs
+        graph_log_directory = os.path.join(self.output_dir, "graph_logs")
+        os.makedirs(graph_log_directory, exist_ok=True)
+
         # Run Json graph
         command = KRKNCTL_GRAPH_RUN_TEMPLATE.format(
-            path=json_file, kubeconfig=self.config.kubeconfig_file_path
+            path=json_file,
+            kubeconfig=self.config.kubeconfig_file_path,
+            log_dir=graph_log_directory
         )
         return command
 
@@ -555,4 +563,63 @@ class KrknRunner:
 
         except Exception as e:
             logger.error("Failed to extract return code from run log: %s", e)
+            return default_returncode, None
+
+    def __extract_returncode_from_graph_run(self, log_dir: str, default_returncode: int) -> Tuple[int, Optional[str]]:
+        """
+        Extract return codes from graph run by parsing individual node log files.
+        krknctl graph run creates separate log files for each graph node execution.
+
+        Returns the worst return code found across all node logs, with safe fallback.
+        """
+        try:
+            if not os.path.exists(log_dir):
+                logger.warning("Graph log directory does not exist: %s", log_dir)
+                return default_returncode, None
+
+            log_files = [f for f in os.listdir(log_dir) if f.endswith('.log')]
+            if not log_files:
+                logger.warning("No log files found in graph log directory")
+                return default_returncode, None
+
+            logger.debug("Found %d log files in graph run", len(log_files))
+
+            worst_returncode = 0
+            run_uuid = None
+
+            # Parse each node's log file
+            for log_file in log_files:
+                log_path = os.path.join(log_dir, log_file)
+                try:
+                    with open(log_path, 'r') as f:
+                        node_log = f.read()
+
+                    # Extract return code from this node's log
+                    node_returncode, node_uuid = self.__extract_returncode_from_run(node_log, 0)
+
+                    # Track the worst return code seen
+                    # Prioritize misconfiguration (1) over SLO failures (2)
+                    if node_returncode != 0 and node_returncode != 2:
+                        # Non-zero, non-2 codes indicate misconfiguration
+                        worst_returncode = node_returncode
+                    elif worst_returncode == 0 or worst_returncode == 2:
+                        # Only update if we haven't seen misconfiguration yet
+                        if node_returncode > worst_returncode:
+                            worst_returncode = node_returncode
+
+                    # Capture UUID from any node (they should all share the same run UUID)
+                    if node_uuid and not run_uuid:
+                        run_uuid = node_uuid
+
+                    logger.debug("Node %s exit status: %d", log_file, node_returncode)
+
+                except Exception as e:
+                    logger.warning("Failed to parse log file %s: %s", log_file, e)
+                    continue
+
+            logger.info("Graph run worst exit status: %d (from %d nodes)", worst_returncode, len(log_files))
+            return worst_returncode, run_uuid
+
+        except Exception as e:
+            logger.error("Failed to extract return codes from graph run: %s", e)
             return default_returncode, None

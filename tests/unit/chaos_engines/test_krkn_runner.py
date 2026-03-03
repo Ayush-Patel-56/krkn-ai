@@ -209,8 +209,65 @@ class TestKrknRunnerCommandGeneration:
 
             assert "krknctl graph run" in command
             assert "/tmp/kubeconfig" in command
+            assert "--log-dir" in command
             # Verify JSON file was created
             graph_dir = os.path.join(temp_output_dir, "graphs")
             assert os.path.exists(graph_dir)
             json_files = [f for f in os.listdir(graph_dir) if f.endswith(".json")]
             assert len(json_files) > 0
+            # Verify log directory was created
+            log_dir = os.path.join(temp_output_dir, "graph_logs")
+            assert os.path.exists(log_dir)
+
+    def test_extract_returncode_from_graph_run(self, minimal_config, temp_output_dir):
+        """Test extracting return codes from graph run log files"""
+        with patch("krkn_ai.chaos_engines.krkn_runner.create_prometheus_client"):
+            runner = KrknRunner(
+                config=minimal_config,
+                output_dir=temp_output_dir,
+                runner_type=KrknRunnerType.CLI_RUNNER,
+            )
+
+            # Create mock log directory with sample log files
+            log_dir = os.path.join(temp_output_dir, "test_graph_logs")
+            os.makedirs(log_dir, exist_ok=True)
+
+            # Create sample log files with telemetry data
+            log1_content = """
+Chaos data:
+{
+  "telemetry": {
+    "run_uuid": "test-uuid-123",
+    "scenarios": [
+      {
+        "exit_status": 0
+      }
+    ]
+  }
+}
+"""
+            log2_content = """
+Chaos data:
+{
+  "telemetry": {
+    "run_uuid": "test-uuid-123",
+    "scenarios": [
+      {
+        "exit_status": 2
+      }
+    ]
+  }
+}
+"""
+
+            with open(os.path.join(log_dir, "node1.log"), "w") as f:
+                f.write(log1_content)
+            with open(os.path.join(log_dir, "node2.log"), "w") as f:
+                f.write(log2_content)
+
+            # Extract return codes
+            returncode, run_uuid = runner._KrknRunner__extract_returncode_from_graph_run(log_dir)
+
+            # Should return worst (highest) return code
+            assert returncode == 2
+            assert run_uuid == "test-uuid-123"
